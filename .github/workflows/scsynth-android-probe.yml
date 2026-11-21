@@ -133,4 +133,4 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-# Manual Stratum ARM64 build request: compile pinned MiRings and MiClouds for the feature br
+# Manual Stratum ARM64 build request: compile pinned MiRings and MiClouds for the feature branch.
