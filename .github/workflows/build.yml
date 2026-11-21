@@ -128,7 +128,7 @@ jobs:
             app/src/main/assets/scsynth/synthdefs/NornsStratum.scsyndef \
             app/src/main/assets/scsynth/synthdefs/SoftcutStereoRouteProbe.scsyndef
       - name: Build debug APK
-        run: gradle --no-daemon --stacktrace clean testDebugUnitTest assembleDebug
+        run: gradle --no-daemon --stacktrace clean assembleDebug
 
       - name: Verify APK output
         id: apk
@@ -168,7 +168,7 @@ jobs:
             echo "- Java: 17"
             echo "- Gradle: 8.9"
             echo "- Android NDK: 27.2.12479018"
-            echo "- Unit tests: executed before APK packaging"
+            echo "- Unit tests: run in the Unit Tests workflow (not here)"
             echo "- Job result: **${{ job.status }}**"
             if [[ -f dist/NornsMobile-debug.apk ]]; then
               echo "- APK: generated successfully"
