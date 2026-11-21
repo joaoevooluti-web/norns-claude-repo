@@ -59,8 +59,10 @@ norns = {
   platform = "android",
   state = {
     name = "", shortname = "", path = "", lib = "", data = "", out = 64,
+    -- Monitor da entrada começa MUDO no Android: o microfone fica perto do alto-falante e
+    -- o monitor em 0 dB (padrão do norns de hardware) causa realimentação acústica.
     mix = {
-      output = 0, input = 0, monitor = 0, engine = 0, cut = 0, tape = 0,
+      output = 0, input = 0, monitor = -math.huge, engine = 0, cut = 0, tape = 0,
       monitor_mode = 1, headphone_gain = 40, aux = 2, ins = 1,
       rev_eng_input = -9, rev_cut_input = -9, rev_monitor_input = -math.huge,
       rev_tape_input = -math.huge, rev_return_level = 0, rev_pre_delay = 60,
