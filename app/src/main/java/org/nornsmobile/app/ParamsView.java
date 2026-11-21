@@ -11,6 +11,10 @@ import android.widget.HorizontalScrollView;
 import android.app.AlertDialog;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
+import android.graphics.drawable.ClipDrawable;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.LayerDrawable;
 import android.widget.TextView;
 import android.widget.EditText;
 
@@ -253,6 +257,33 @@ final class ParamsView extends LinearLayout {
         }
     }
 
+    /** Trilho grosso, polegar grande e altura de toque de ~48dp (o SeekBar padrão é muito fino). */
+    private void styleSlider(SeekBar sb) {
+        int trackH = Theme.dp(ctx, 10);
+        int thumb = Theme.dp(ctx, 28);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(Theme.PANEL2);
+        bg.setCornerRadius(trackH / 2f);
+        bg.setSize(1, trackH);
+        GradientDrawable fg = new GradientDrawable();
+        fg.setColor(Theme.ACCENT);
+        fg.setCornerRadius(trackH / 2f);
+        fg.setSize(1, trackH);
+        LayerDrawable layers = new LayerDrawable(new Drawable[]{bg, new ClipDrawable(fg, Gravity.START, ClipDrawable.HORIZONTAL)});
+        layers.setId(0, android.R.id.background);
+        layers.setId(1, android.R.id.progress);
+        sb.setProgressDrawable(layers);
+        GradientDrawable knob = new GradientDrawable();
+        knob.setShape(GradientDrawable.OVAL);
+        knob.setColor(Theme.ACCENT);
+        knob.setStroke(Theme.dp(ctx, 3), Theme.PANEL);
+        knob.setSize(thumb, thumb);
+        sb.setThumb(knob);
+        sb.setSplitTrack(false);
+        int side = thumb / 2;
+        sb.setPadding(side, Theme.dp(ctx, 10), side, Theme.dp(ctx, 10));
+    }
+
     private Row buildRow(final P p) {
         final Row row = new Row();
         row.p = p;
@@ -286,8 +317,7 @@ final class ParamsView extends LinearLayout {
             SeekBar sb = new SeekBar(ctx);
             sb.setMax(1000);
             sb.setProgress((int) Math.round(p.norm * 1000.0));
-            sb.setProgressTintList(ColorStateList.valueOf(Theme.ACCENT));
-            sb.setThumbTintList(ColorStateList.valueOf(Theme.ACCENT));
+            styleSlider(sb);
             sb.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
                 @Override
                 public void onProgressChanged(SeekBar s, int progress, boolean fromUser) {

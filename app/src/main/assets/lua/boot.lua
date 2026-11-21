@@ -6253,6 +6253,21 @@ local function clean(s)
   return s
 end
 
+-- Remove ruído de ponto flutuante (ex.: -8.999999999999998) e "Infinity" do texto exibido.
+local function tidy_value_text(s)
+  s = tostring(s)
+  s = string.gsub(s, "%-[Ii]nf%a*", "-inf")
+  s = string.gsub(s, "(%-?%d+%.%d%d%d%d%d%d%d%d%d+)", function(n)
+    local v = tonumber(n)
+    if not v then return n end
+    local t = string.format("%.3f", v)
+    t = string.gsub(t, "0+$", "")
+    t = string.gsub(t, "%.$", ".0")
+    return t
+  end)
+  return s
+end
+
 function _norns.params_serialize()
   local rows = params:ui_rows(true)
   local out = {}
@@ -6260,7 +6275,7 @@ function _norns.params_serialize()
     local r = rows[i]
     local norm = r.norm
     if norm ~= norm then norm = 0 end
-    out[#out + 1] = table.concat({r.kind, clean(r.id), clean(r.name), clean(r.str), string.format("%.6f", norm), tostring(norns.state.pset_last or 1), clean(r.path or "")}, "\t")
+    out[#out + 1] = table.concat({r.kind, clean(r.id), clean(r.name), clean((r.kind == "control" or r.kind == "number") and tidy_value_text(r.str) or r.str), string.format("%.6f", norm), tostring(norns.state.pset_last or 1), clean(r.path or "")}, "\t")
   end
   return table.concat(out, "\n")
 end
