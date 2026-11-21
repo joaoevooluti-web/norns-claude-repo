@@ -1,0 +1,180 @@
+name: Norns Mobile APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master, feature/0.4.5-android-audio-driver, migration/reconcile-jo1ngf-2026-11-12]
+    paths:
+      - "app/**"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "gradle.properties"
+      - "tools/compile-softcut-synthdef.scd"
+      - "tools/validate-synthdef.py"
+      - ".github/workflows/android.yml"
+      - ".github/workflows/build.yml"
+  pull_request:
+    paths:
+      - "app/**"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "gradle.properties"
+      - ".github/workflows/android.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[run-build]'))
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android build components
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "$SDKMANAGER" ]]; then
+            SDKMANAGER="$(find "${ANDROID_HOME}/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
+          fi
+          if [[ -z "$SDKMANAGER" || ! -x "$SDKMANAGER" ]]; then
+            echo "::error::sdkmanager executable was not found under ANDROID_HOME"
+            exit 1
+          fi
+          echo "Using sdkmanager: $SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --install "platform-tools"
+          "$SDKMANAGER" --install "platforms;android-35"
+          "$SDKMANAGER" --install "build-tools;35.0.0"
+          "$SDKMANAGER" --install "ndk;27.2.12479018"
+          "$SDKMANAGER" --install "cmake;3.22.1"
+
+      - name: Verify native plugin assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          plugin_dir="app/src/main/assets/scsynth/plugins"
+          if [[ ! -d "$plugin_dir" ]]; then
+            echo "::error::Plugin asset directory not found: $plugin_dir"
+            exit 1
+          fi
+          count="$(find "$plugin_dir" -maxdepth 1 -type f -name '*.so' | wc -l)"
+          echo "Found $count native plugin files."
+          if [[ "$count" -eq 0 ]]; then
+            echo "::error::No native plugin .so files found."
+            exit 1
+          fi
+          find "$plugin_dir" -maxdepth 1 -type f -name '*.so' -print | sort
+
+      - name: Install Mi-UGens classes for Stratum SynthDef
+        run: |
+          set -euo pipefail
+          destination="$HOME/.local/share/SuperCollider/Extensions/NornsMobileMiUGens"
+          mkdir -p "$destination"
+          install -m 0644 tools/mi-ugens-classes/MiRings.sc "$destination/MiRings.sc"
+          install -m 0644 tools/mi-ugens-classes/MiClouds.sc "$destination/MiClouds.sc"
+
+      - name: Compile native SynthDefs
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y supercollider-language
+          command -v sclang
+          QT_QPA_PLATFORM=offscreen QTWEBENGINE_DISABLE_SANDBOX=1 \
+            timeout --signal=TERM --kill-after=10s 120s sclang tools/compile-softcut-synthdef.scd </dev/null
+          test -s app/src/main/assets/scsynth/synthdefs/SoftcutVoice.scsyndef
+          test -s app/src/main/assets/scsynth/synthdefs/SoftcutRecorder.scsyndef
+          test -s app/src/main/assets/scsynth/synthdefs/SoftcutIsolationInput.scsyndef
+          test -s app/src/main/assets/scsynth/synthdefs/Norns32Harmony.scsyndef
+          test -s app/src/main/assets/scsynth/synthdefs/NornsStratum.scsyndef
+          test -s app/src/main/assets/scsynth/synthdefs/SoftcutStereoRouteProbe.scsyndef
+
+      - name: Verify bundled SynthDefs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/validate-synthdef.py \
+            app/src/main/assets/scsynth/synthdefs/TestSine.scsyndef \
+            app/src/main/assets/scsynth/synthdefs/PolyPerc.scsyndef \
+            app/src/main/assets/scsynth/synthdefs/SoftcutVoice.scsyndef \
+            app/src/main/assets/scsynth/synthdefs/SoftcutRecorder.scsyndef \
+            app/src/main/assets/scsynth/synthdefs/SoftcutIsolationInput.scsyndef \
+            app/src/main/assets/scsynth/synthdefs/Norns32Harmony.scsyndef \
+            app/src/main/assets/scsynth/synthdefs/NornsStratum.scsyndef \
+            app/src/main/assets/scsynth/synthdefs/SoftcutStereoRouteProbe.scsyndef
+      - name: Build debug APK
+        run: gradle --no-daemon --stacktrace clean testDebugUnitTest assembleDebug
+
+      - name: Verify APK output
+        id: apk
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="$(find app/build/outputs/apk/debug -maxdepth 1 -type f -name '*.apk' | head -n 1)"
+          if [[ -z "$apk" ]]; then
+            echo "::error::Gradle completed but no debug APK was found."
+            exit 1
+          fi
+          mkdir -p dist
+          cp "$apk" dist/NornsMobile-debug.apk
+          echo "path=dist/NornsMobile-debug.apk" >> "$GITHUB_OUTPUT"
+          sha256sum dist/NornsMobile-debug.apk | tee dist/SHA256SUMS.txt
+          ls -lh dist/
+
+      - name: Upload installable debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: NornsMobile-debug-${{ github.run_number }}
+          path: |
+            dist/NornsMobile-debug.apk
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Build summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Norns Mobile Android build"
+            echo
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Run: \`${GITHUB_RUN_NUMBER}\`"
+            echo "- Java: 17"
+            echo "- Gradle: 8.9"
+            echo "- Android NDK: 27.2.12479018"
+            echo "- Unit tests: executed before APK packaging"
+            echo "- Job result: **${{ job.status }}**"
+            if [[ -f dist/NornsMobile-debug.apk ]]; then
+              echo "- APK: generated successfully"
+            else
+              echo "- APK: not generated"
+            fi
+            echo
+            echo "> A successful APK build validates Android packaging and compilation only. It does not prove that the experimental SuperCollider server/AAudio backend is operational on a device."
+          } >> "$GITHUB_STEP_SUMMARY"
