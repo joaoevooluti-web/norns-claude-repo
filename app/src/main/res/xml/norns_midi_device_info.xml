@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<devices>
+    <device manufacturer="Norns Mobile" model="Norns Mobile MIDI Out" private="false">
+        <output-port name="MIDI Out" />
+    </device>
+</devices>
