@@ -504,7 +504,7 @@ final class LuaHost {
 
     private void boot(File script, ScheduledThreadPoolExecutor owner) {
         try {
-            startSuperCollider();
+            startSuperCollider(script);
             Globals g = JsePlatform.standardGlobals();
             installHost(g);
             globals = g;
@@ -540,12 +540,38 @@ final class LuaHost {
                 ? "none" : requestedEngine;
     }
 
-    private void startSuperCollider() {
+    private static final java.util.regex.Pattern NATIVE_ENGINE_PATTERN = java.util.regex.Pattern.compile(
+            "engine\\.name\\s*=\\s*[\"'](Stratum|32Harmony|SimpleDelayKolor)[\"']");
+
+    /**
+     * O servidor scsynth nativo só é necessário para engines que não têm versão Java
+     * (Stratum, 32Harmony, SimpleDelayKolor). Com o servidor ativo, o mixer Java (reverb,
+     * compressor, níveis ADC/DAC/engine/monitor) é recusado, então os demais scripts
+     * permanecem no caminho Java, onde esses controles funcionam.
+     */
+    static boolean scriptNeedsNativeEngine(String source) {
+        return source != null && NATIVE_ENGINE_PATTERN.matcher(source).find();
+    }
+
+    private static String readScriptHead(File script) {
+        try {
+            byte[] bytes = java.nio.file.Files.readAllBytes(script.toPath());
+            return new String(bytes, 0, Math.min(bytes.length, 1 << 20), java.nio.charset.StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void startSuperCollider(File script) {
         try {
             File plugins = SuperColliderPlugins.install(ctx);
             superColliderPluginDir = plugins;
             superColliderSynthDefDir = SuperColliderPlugins.installSynthDefs(ctx);
             int rate = audio.getSampleRate();
+            if (!scriptNeedsNativeEngine(readScriptHead(script))) {
+                AppLog.i("SuperCollider: servidor nativo desligado (engine Java; reverb, compressor e níveis ativos).");
+                return;
+            }
             boolean available = SuperColliderBridge.isAvailable();
             if (!available) {
                 AppLog.i("SuperCollider: símbolos nativos indisponíveis; mantendo áudio Java.");

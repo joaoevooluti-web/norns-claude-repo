@@ -6066,8 +6066,12 @@ if type(_menu.rebuild_params) ~= "function" then
 end
 
 local function add_system_params()
-  local g = params:add_group("clock_group", "CLOCK", 1)
+  local g = params:add_group("clock_group", "CLOCK", 2)
   g.system = true
+  -- Parâmetro do norns usado por scripts (ex.: Stratum). Só internal e midi são suportados.
+  local src = params:add_option("clock_source", "source", {"internal", "midi"}, 1)
+  src.system = true
+  src.action = function(v) clock.set_source(v == 2 and "midi" or "internal") end
   local p = params:add_number("clock_tempo", "tempo", 1, 300, tempo)
   p.system = true
   p.action = function(v) set_tempo(v) end
