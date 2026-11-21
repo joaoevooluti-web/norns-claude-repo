@@ -1,0 +1,422 @@
+name: Norns Mobile 0.4.5 — Integrate scsynth Oboe
+
+on:
+  push:
+    branches:
+      - feature/0.4.5-android-audio-driver
+      - migration/reconcile-jo1ngf-2026-11-12
+    paths:
+      - '.github/workflows/integrate-scsynth-android.yml'
+      - '.github/workflows/scsynth-android-probe.yml'
+      - '.github/workflows/build.yml'
+      - 'app/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle.properties'
+      - 'tools/validate-synthdef.py'
+      - 'tools/validate-native-output-gate.py'
+      - 'tools/validate-softcut-output-routing.py'
+      - 'app/src/main/java/org/nornsmobile/app/SoftcutOutputOwnership.java'
+      - 'app/src/test/java/org/nornsmobile/app/SoftcutOutputOwnershipTest.java'
+      - 'tools/NornsSpscFloatRing.h'
+      - 'tools/test-oboe-input-ring.cpp'
+      - 'tools/SoftcutDiagnosticSnapshot.h'
+      - 'tools/SoftcutSignalAccumulator.h'
+      - 'tools/test-softcut-signal-accumulator.cpp'
+      - 'tools/test-softcut-diagnostic-snapshot.cpp'
+      - 'tools/compile-softcut-synthdef.scd'
+      - 'tools/test-softcut-recorder-gate.py'
+      - 'tools/SC_AndroidAudio.cpp'
+      - 'tools/SoftcutEngineSendBus.h'
+      - 'tools/test-softcut-engine-send-bus.cpp'
+      - 'tools/patch-scsynth-android.py'
+      - 'tools/probe-scsynth-android.sh'
+      - 'tools/build-mi-ugens-android.sh'
+      - 'tools/patch-mi-ugens-android.py'
+      - 'tools/mi-ugens-classes/**'
+  workflow_dispatch:
+    inputs:
+      probe_run_id:
+        description: "Successful Experimental scsynth Android probe run ID"
+        required: false
+        default: ""
+      build_apk:
+        description: "Build APK after importing the native libraries"
+        type: boolean
+        required: true
+        default: true
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: norns-045-integrate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integrate:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[run-integrate]'))
+    name: Import scsynth ARM64 and build APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Checkout exact triggering commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Configure preinstalled Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          [[ -d "$SDK_ROOT" ]] || { echo "::error::Android SDK não encontrado em $SDK_ROOT"; exit 1; }
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager -print -quit 2>/dev/null || true)"
+          if [[ -z "$SDKMANAGER" || ! -x "$SDKMANAGER" ]]; then
+            echo "::error::sdkmanager não encontrado em $SDK_ROOT/cmdline-tools"
+            find "$SDK_ROOT" -maxdepth 4 -type f -name sdkmanager -print || true
+            exit 1
+          fi
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
+          echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+          echo "Using SDK manager: $SDKMANAGER"
+
+      - name: Install Android build components
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install "platform-tools"
+          sdkmanager --install "platforms;android-35"
+          sdkmanager --install "build-tools;35.0.0"
+          sdkmanager --install "ndk;27.2.12479018"
+          sdkmanager --install "cmake;3.22.1"
+
+      - name: Download successful native probe artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.probe_run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .sc-probe
+          native_inputs=(
+            app/src/main/cpp
+            app/src/main/assets/scsynth/synthdefs
+            tools/probe-scsynth-android.sh
+            tools/patch-scsynth-android.py
+            tools/build-mi-ugens-android.sh
+            tools/patch-mi-ugens-android.py
+            tools/mi-ugens-classes
+            tools/compile-softcut-synthdef.scd
+            .github/workflows/scsynth-android-probe.yml
+          )
+          probe_compatible() {
+            local candidate_sha="$1"
+            [[ "$candidate_sha" == "$GITHUB_SHA" ]] && return 0
+            git merge-base --is-ancestor "$candidate_sha" "$GITHUB_SHA" || return 1
+            git diff --quiet "$candidate_sha" "$GITHUB_SHA" -- "${native_inputs[@]}"
+          }
+          PROBE_SHA=""
+          if [[ -z "$RUN_ID" ]]; then
+            echo "Procurando probe ARM64 aprovada com entradas nativas idênticas..."
+            for attempt in $(seq 1 240); do
+              RUN_INFO="$(gh run list --workflow scsynth-android-probe.yml --branch "$GITHUB_REF_NAME" --status success --limit 20 --json databaseId,headSha)"
+              while IFS='|' read -r candidate_id candidate_sha; do
+                [[ -n "$candidate_id" && -n "$candidate_sha" ]] || continue
+                if probe_compatible "$candidate_sha"; then
+                  RUN_ID="$candidate_id"
+                  PROBE_SHA="$candidate_sha"
+                  break
+                fi
+              done < <(python3 -c 'import json,sys; [print(str(r.get("databaseId",""))+"|"+str(r.get("headSha",""))) for r in json.load(sys.stdin)]' <<< "$RUN_INFO")
+              [[ -n "$RUN_ID" ]] && break
+              echo "Nenhuma probe compatível ainda ($attempt/240)"
+              sleep 30
+            done
+          else
+            PROBE_SHA="$(gh run view "$RUN_ID" --repo "$GITHUB_REPOSITORY" --json headSha -q .headSha)"
+          fi
+          [[ -n "$RUN_ID" && -n "$PROBE_SHA" ]] || { echo "::error::Nenhum run de probe ARM64 compatível foi encontrado."; exit 1; }
+          if ! probe_compatible "$PROBE_SHA"; then
+            echo "::error::A probe $RUN_ID ($PROBE_SHA) não é ancestral compatível com as entradas nativas deste commit."
+            git diff --name-only "$PROBE_SHA" "$GITHUB_SHA" -- "${native_inputs[@]}" || true
+            exit 1
+          fi
+          echo "Usando probe ARM64 $RUN_ID do SHA $PROBE_SHA; entradas nativas permanecem idênticas em $GITHUB_SHA."
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --dir .sc-probe || {
+            echo "::error::Não foi possível baixar artefatos da probe $RUN_ID."
+            exit 1
+          }
+          find .sc-probe -type f | sort
+
+      - name: Validate and import ARM64 libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          LIB="$(find .sc-probe -type f -path '*/server/scsynth/libscsynth.so' -print -quit)"
+          [[ -n "$LIB" ]] || { echo "::error::libscsynth.so não encontrada no artefato"; exit 1; }
+          mkdir -p app/src/main/jniLibs/arm64-v8a app/src/main/assets/scsynth/plugins
+          cp "$LIB" app/src/main/jniLibs/arm64-v8a/libscsynth.so
+          find .sc-probe -type f -path '*/server/plugins/*.so' -print0 | while IFS= read -r -d '' plugin; do
+            cp "$plugin" app/src/main/assets/scsynth/plugins/
+          done
+          test -s app/src/main/jniLibs/arm64-v8a/libscsynth.so
+          COUNT="$(find app/src/main/assets/scsynth/plugins -maxdepth 1 -type f -name '*.so' | wc -l)"
+          echo "Imported libscsynth.so and $COUNT UGen plugins"
+          [[ "$COUNT" -ge 20 ]] || { echo "::error::Quantidade inesperada de plugins: $COUNT"; exit 1; }
+          test -s app/src/main/assets/scsynth/plugins/MiRings.so
+          test -s app/src/main/assets/scsynth/plugins/MiClouds.so
+          echo "OK: MiRings.so e MiClouds.so importados para Stratum"
+          HASH_FILE="$(find .sc-probe -type f -name mi-ugens-sha256.txt -print -quit)"
+          [[ -n "$HASH_FILE" ]] || { echo "::error::Mi-UGens checksum artifact missing"; exit 1; }
+          for plugin in MiRings MiClouds; do
+            expected="$(grep -F "/$plugin.so" "$HASH_FILE" | awk '{print $1}' | head -n1)"
+            actual="$(sha256sum "app/src/main/assets/scsynth/plugins/$plugin.so" | awk '{print $1}')"
+            [[ -n "$expected" && "$actual" == "$expected" ]] || {
+              echo "::error::Checksum mismatch for $plugin.so"
+              exit 1
+            }
+            echo "OK: $plugin.so checksum $actual"
+          done
+          SOURCE_HASH_FILE="$(find .sc-probe -type f -name mi-ugens-source-sha256.txt -print -quit)"
+          if [[ -n "$SOURCE_HASH_FILE" ]]; then
+            echo "Pinned mi-UGens source archive checksum:"
+            cat "$SOURCE_HASH_FILE"
+          fi
+          readelf -h app/src/main/jniLibs/arm64-v8a/libscsynth.so | grep -E 'Class:|Machine:'
+          readelf -d app/src/main/jniLibs/arm64-v8a/libscsynth.so | grep NEEDED
+          echo "Checking exported NornsSC control symbols"
+          SYMBOLS="$(readelf -Ws app/src/main/jniLibs/arm64-v8a/libscsynth.so)"
+          for symbol in NornsSC_Start NornsSC_Stop NornsSC_IsRunning NornsSC_SendPacket NornsSC_PollReply NornsSC_ReadInput NornsSC_HasInput NornsSC_SetSoftcutOutputEnabled NornsSC_SetSoftcutOutputProbeMode NornsSC_ReadSoftcutDiagnostics NornsSC_ReadCpuMetrics NornsSC_ResetSoftcutRecorderDiagnostics; do
+            if ! grep -Fq "$symbol" <<< "$SYMBOLS"; then
+              echo "::error::Símbolo nativo ausente: $symbol"
+              exit 1
+            fi
+            echo "OK: $symbol"
+          done
+
+      - name: Test lock-free Oboe input ring
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pthread tools/test-oboe-input-ring.cpp -o /tmp/test-oboe-input-ring
+          /tmp/test-oboe-input-ring
+          echo "OK: ring overflow, underrun, block alignment and 200k concurrent samples"
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pthread tools/test-softcut-diagnostic-snapshot.cpp -o /tmp/test-softcut-diagnostic-snapshot
+          /tmp/test-softcut-diagnostic-snapshot
+          echo "OK: coherent diagnostic snapshots under concurrent publication"
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror tools/test-softcut-signal-accumulator.cpp -o /tmp/test-softcut-signal-accumulator
+          /tmp/test-softcut-signal-accumulator
+          echo "OK: per-session recorder peak/RMS accumulation and reset"
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror tools/test-softcut-engine-send-bus.cpp -o /tmp/test-softcut-engine-send-bus
+          /tmp/test-softcut-engine-send-bus
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror tools/test-softcut-output-mixer.cpp -o /tmp/test-softcut-output-mixer
+          /tmp/test-softcut-output-mixer
+          echo "OK: stereo channel isolation, master passthrough, Softcut mute gate and PCM saturation"
+
+      - name: Validate native output safety gate
+        run: python3 tools/validate-native-output-gate.py
+
+      - name: Validate exclusive Softcut output routing
+        run: python3 tools/validate-softcut-output-routing.py
+
+      - name: Validate SoftcutRecorder write gate
+        run: python3 tools/test-softcut-recorder-gate.py
+
+      - name: Install Mi-UGens classes for Stratum SynthDef
+        run: |
+          set -euo pipefail
+          destination="$HOME/.local/share/SuperCollider/Extensions/NornsMobileMiUGens"
+          mkdir -p "$destination"
+          install -m 0644 tools/mi-ugens-classes/MiRings.sc "$destination/MiRings.sc"
+          install -m 0644 tools/mi-ugens-classes/MiClouds.sc "$destination/MiClouds.sc"
+
+      - name: Compile native Softcut SynthDef
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y supercollider-language
+          command -v sclang
+          QT_QPA_PLATFORM=offscreen QTWEBENGINE_DISABLE_SANDBOX=1 \
+            timeout --signal=TERM --kill-after=10s 120s sclang tools/compile-softcut-synthdef.scd </dev/null
+          test -s app/src/main/assets/scsynth/synthdefs/SoftcutVoice.scsyndef
+          test -s app/src/main/assets/scsynth/synthdefs/SoftcutRecorder.scsyndef
+          test -s app/src/main/assets/scsynth/synthdefs/SoftcutIsolationInput.scsyndef
+          test -s app/src/main/assets/scsynth/synthdefs/Norns32Harmony.scsyndef
+          test -s app/src/main/assets/scsynth/synthdefs/NornsStratum.scsyndef
+          test -s app/src/main/assets/scsynth/synthdefs/SoftcutStereoRouteProbe.scsyndef
+
+      - name: Validate bundled SynthDefs
+        run: |
+          python3 tools/validate-synthdef.py \
+            app/src/main/assets/scsynth/synthdefs/TestSine.scsyndef \
+            app/src/main/assets/scsynth/synthdefs/PolyPerc.scsyndef \
+            app/src/main/assets/scsynth/synthdefs/SoftcutVoice.scsyndef \
+            app/src/main/assets/scsynth/synthdefs/SoftcutRecorder.scsyndef \
+            app/src/main/assets/scsynth/synthdefs/SoftcutIsolationInput.scsyndef \
+            app/src/main/assets/scsynth/synthdefs/Norns32Harmony.scsyndef \
+            app/src/main/assets/scsynth/synthdefs/NornsStratum.scsyndef \
+            app/src/main/assets/scsynth/synthdefs/SoftcutStereoRouteProbe.scsyndef
+
+      - name: Update app version to 0.4.5
+        if: github.event_name == 'push' || inputs.build_apk
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("app/build.gradle.kts")
+          s = p.read_text()
+          s = s.replace('versionCode = 8', 'versionCode = 9')
+          s = s.replace('versionName = "0.4.4"', 'versionName = "0.4.5"')
+          p.write_text(s)
+          p = Path("app/src/main/java/org/nornsmobile/app/MainActivity.java")
+          s = p.read_text().replace('static final String VERSION = "0.4.4";',
+                                    'static final String VERSION = "0.4.5";')
+          p.write_text(s)
+          PY
+
+      - name: Clean Gradle outputs before fetching fixtures
+        run: gradle --no-daemon --stacktrace clean
+
+      - name: Fetch pinned upstream Norns script fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="app/build/compatibility-scripts"
+          mkdir -p "$root/circles/lib" "$root/32-harmony" "$root/oooooo/lib"
+          fetch() {
+            local repo="$1" commit="$2" source="$3" destination="$4"
+            curl --fail --location --retry 3 --silent --show-error \
+              "https://raw.githubusercontent.com/$repo/$commit/$source" \
+              --output "$destination"
+            test -s "$destination"
+          }
+          mkdir -p "$root/stratum/lib"
+          stratum_repo="mrmattallison/stratum"
+          stratum_commit="8c7ca83e0b4ff8f3b20f170a68d7b782cf98ba74"
+          fetch "$stratum_repo" "$stratum_commit" stratum.lua "$root/stratum/stratum.lua"
+          fetch "$stratum_repo" "$stratum_commit" lib/Engine_Stratum.sc "$root/stratum/lib/Engine_Stratum.sc"
+          fetch "$stratum_repo" "$stratum_commit" lib/deja_vu.lua "$root/stratum/lib/deja_vu.lua"
+          fetch "$stratum_repo" "$stratum_commit" lib/output.lua "$root/stratum/lib/output.lua"
+          fetch "$stratum_repo" "$stratum_commit" lib/stratum_clouds.lua "$root/stratum/lib/stratum_clouds.lua"
+          fetch "$stratum_repo" "$stratum_commit" lib/stratum_lfo.lua "$root/stratum/lib/stratum_lfo.lua"
+          fetch "$stratum_repo" "$stratum_commit" lib/stratum_mod.lua "$root/stratum/lib/stratum_mod.lua"
+          fetch "$stratum_repo" "$stratum_commit" lib/stratum_page.lua "$root/stratum/lib/stratum_page.lua"
+          fetch "$stratum_repo" "$stratum_commit" lib/stratum_rings.lua "$root/stratum/lib/stratum_rings.lua"
+          fetch "$stratum_repo" "$stratum_commit" lib/stratum_seq.lua "$root/stratum/lib/stratum_seq.lua"
+          fetch "$stratum_repo" "$stratum_commit" lib/t_section.lua "$root/stratum/lib/t_section.lua"
+          fetch "$stratum_repo" "$stratum_commit" lib/x_section.lua "$root/stratum/lib/x_section.lua"
+          fetch JakeCarter/circles a711dcd1c19df844fed145f7a0d03b6867d12082 circles.lua "$root/circles/circles.lua"
+          fetch JakeCarter/circles a711dcd1c19df844fed145f7a0d03b6867d12082 lib/libCircles.lua "$root/circles/lib/libCircles.lua"
+          fetch JakeCarter/circles a711dcd1c19df844fed145f7a0d03b6867d12082 lib/math_helpers.lua "$root/circles/lib/math_helpers.lua"
+          fetch rehresman/32-harmony 7f088b4797e4075adcd414c25b371740e5c65a31 32-harmony.lua "$root/32-harmony/32-harmony.lua"
+          fetch schollz/oooooo 67c29d3a3d8eb53e95fe47a20c00b954df2e0023 oooooo.lua "$root/oooooo/oooooo.lua"
+          fetch schollz/oooooo 67c29d3a3d8eb53e95fe47a20c00b954df2e0023 lib/grido.lua "$root/oooooo/lib/grido.lua"
+          fetch schollz/oooooo 67c29d3a3d8eb53e95fe47a20c00b954df2e0023 lib/monosong.lua "$root/oooooo/lib/monosong.lua"
+          fetch schollz/oooooo 67c29d3a3d8eb53e95fe47a20c00b954df2e0023 lib/json.lua "$root/oooooo/lib/json.lua"
+          fetch schollz/oooooo 67c29d3a3d8eb53e95fe47a20c00b954df2e0023 lib/glyphs.lua "$root/oooooo/lib/glyphs.lua"
+          fetch schollz/oooooo 67c29d3a3d8eb53e95fe47a20c00b954df2e0023 lib/glyphs.json "$root/oooooo/lib/glyphs.json"
+          fetch schollz/oooooo 67c29d3a3d8eb53e95fe47a20c00b954df2e0023 lib/table_addons.lua "$root/oooooo/lib/table_addons.lua"
+          fetch schollz/oooooo 67c29d3a3d8eb53e95fe47a20c00b954df2e0023 lib/lattice.lua "$root/oooooo/lib/lattice.lua"
+          fetch schollz/oooooo 67c29d3a3d8eb53e95fe47a20c00b954df2e0023 lib/musicutil.lua "$root/oooooo/lib/musicutil.lua"
+          fetch schollz/oooooo 67c29d3a3d8eb53e95fe47a20c00b954df2e0023 lib/Engine_SimpleDelayKolor.sc "$root/oooooo/lib/Engine_SimpleDelayKolor.sc"
+          fetch schollz/oooooo 67c29d3a3d8eb53e95fe47a20c00b954df2e0023 lib/Engine_SimpleDelay.sc "$root/oooooo/lib/Engine_SimpleDelay.sc"
+
+      - name: Run unit tests and build debug APK
+        if: github.event_name == 'push' || inputs.build_apk
+        run: gradle --no-daemon --stacktrace testDebugUnitTest assembleDebug
+
+      - name: Verify JUnit reports and MIDI queue tests
+        if: github.event_name == 'push' || inputs.build_apk
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import glob
+          import os
+          import xml.etree.ElementTree as ET
+
+          files = glob.glob("app/build/test-results/testDebugUnitTest/*.xml")
+          if not files:
+              raise SystemExit("JUnit XML reports were not generated")
+          cases = []
+          for filename in files:
+              cases.extend(ET.parse(filename).getroot().findall(".//testcase"))
+          midi = [case for case in cases
+                  if case.attrib.get("classname", "").endswith("MidiMessageQueueTest")]
+          expected = {
+              "drainsMessagesInFifoOrder",
+              "copiesMessagesWhenQueued",
+              "boundedQueueDropsNewestOrdinaryMessageWithoutReordering",
+              "noteOffOverflowReplacesBurstWithPanicAndPreservesRelease",
+              "zeroVelocityNoteOnIsTreatedAsNoteOffForOverflowSafety",
+              "clearDiscardsQueuedMessages",
+              "rejectsCapacityTooSmallForPanicRecovery",
+          }
+          actual = {case.attrib.get("name") for case in midi}
+          failures = [case.attrib.get("name") for case in midi
+                      if case.find("failure") is not None or case.find("error") is not None]
+          if actual != expected or failures:
+              raise SystemExit(f"MIDI queue JUnit mismatch: actual={sorted(actual)} failures={failures}")
+          os.makedirs("dist", exist_ok=True)
+          with open("dist/JUNIT_SUMMARY.txt", "w", encoding="utf-8") as report:
+              report.write(f"JUnit test cases: {len(cases)}\\n")
+              report.write(f"MidiMessageQueueTest: {len(midi)}/7 passed\\n")
+              report.write("Methods: " + ", ".join(sorted(actual)) + "\\n")
+          print(f"OK: JUnit reports contain {len(cases)} tests; all 7 MIDI queue tests passed")
+          PY
+
+      - name: Verify packaged native libraries
+        if: github.event_name == 'push' || inputs.build_apk
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$(find app/build/outputs/apk/debug -name '*.apk' -print -quit)"
+          test -n "$APK"
+          unzip -l "$APK" | grep -E 'libscsynth.so|libnorns_sc_bridge.so|libc\+\+_shared.so'
+          unzip -l "$APK" | grep -F 'assets/scsynth/plugins/MiRings.so'
+          unzip -l "$APK" | grep -F 'assets/scsynth/plugins/MiClouds.so'
+          unzip -l "$APK" | grep -F 'assets/scsynth/synthdefs/NornsStratum.scsyndef'
+          mkdir -p dist
+          cp "$APK" dist/NornsMobile-0.4.5-debug.apk
+          sha256sum dist/NornsMobile-0.4.5-debug.apk > dist/SHA256SUMS.txt
+
+      - name: Upload APK and native integration report
+        if: github.event_name == 'push' || inputs.build_apk
+        uses: actions/upload-artifact@v4
+        with:
+          name: NornsMobile-0.4.5-debug-${{ github.run_number }}
+          path: |
+            dist/NornsMobile-0.4.5-debug.apk
+            dist/SHA256SUMS.txt
+            dist/JUNIT_SUMMARY.txt
+            app/build/test-results/testDebugUnitTest/*.xml
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload imported native payload
+        uses: actions/upload-artifact@v4
+        with:
+          name: scsynth-android-imported-${{ github.run_number }}
+          path: |
+            app/src/main/jniLibs/arm64-v8a/libscsynth.so
+            app/src/main/assets/scsynth/plugins/*.so
+          if-no-files-found: error
+          retention-days: 14
