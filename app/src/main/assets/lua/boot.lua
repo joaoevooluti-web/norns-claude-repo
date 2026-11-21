@@ -3623,7 +3623,7 @@ end
 
 norns.crow.event = function(id, line) crow_receive(line) end
 
-local crow = {}
+crow = {}
 crow.output = crow_proxy("output")
 crow.input = crow_proxy("input")
 crow.ii = crow_proxy("ii")
@@ -5643,9 +5643,12 @@ function poll.set(name, callback)
     if self._clock then return false end
     self._running = true
     self._clock = clock.run(function()
+      -- Como na norns, o primeiro callback só ocorre após o intervalo; scripts
+      -- (ex.: 32-harmony) criam tabelas usadas no callback logo depois do start().
       while self._running do
-        self:update()
         clock.sleep(math.max(0.01, tonumber(self.time) or 0.1))
+        if not self._running then break end
+        self:update()
       end
     end)
     return true

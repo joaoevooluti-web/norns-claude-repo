@@ -8,7 +8,17 @@ end
 function util.round(number, quant)
   quant = quant or 1
   if quant == 0 then return number end
-  return math.floor(number / quant + 0.5) * quant
+  local r = math.floor(number / quant + 0.5) * quant
+  -- Remove ruído de ponto flutuante (ex.: 35*0.1 = 3.5000000000000004).
+  if quant ~= math.floor(quant) and r == r and r ~= math.huge and r ~= -math.huge then
+    local decimals = math.max(0, math.ceil(-math.log(quant) / math.log(10) - 1e-9))
+    if decimals <= 12 then
+      local m = 10 ^ decimals
+      r = math.floor(r * m + 0.5) / m
+      if r ~= r then return number end
+    end
+  end
+  return r
 end
 
 function util.round_up(number, quant)

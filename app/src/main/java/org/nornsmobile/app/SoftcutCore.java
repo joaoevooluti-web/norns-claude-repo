@@ -360,7 +360,20 @@ final class SoftcutCore {
                 int p = Math.max(0, Math.min(data.length - 1, (int)Math.floor(v.position)));
                 int q = Math.min(data.length - 1, p + 1);
                 double frac = clamp(v.position - p, 0, 1);
-                float sample = (float)(data[p] + (data[q] - data[p]) * frac);
+                // Hermite cúbico (como o softcut real): evita o serrilhado/"bitcrush" da
+                // interpolação linear quando rate != 1 (ex.: halfsecond / awake).
+                boolean resampling = Math.abs(v.rate - 1.0) > 1e-6 || frac > 1e-6;
+                float sample;
+                if (resampling) {
+                    double ym1 = data[Math.max(0, p - 1)], y0 = data[p], y1 = data[q];
+                    double y2 = data[Math.min(data.length - 1, q + 1)];
+                    double c0 = y0, c1 = 0.5 * (y1 - ym1);
+                    double c2 = ym1 - 2.5 * y0 + 2.0 * y1 - 0.5 * y2;
+                    double c3 = 0.5 * (y2 - ym1) + 1.5 * (y0 - y1);
+                    sample = (float)(((c3 * frac + c2) * frac + c1) * frac + c0);
+                } else {
+                    sample = data[p];
+                }
 
                 // A gravação avança mesmo com play desligado. Isso permite
                 // gravar uma entrada externa em um buffer vazio ou pré-carregado.
@@ -383,8 +396,18 @@ final class SoftcutCore {
                                     cutRoutingCurrent[source][currentVoice], sendTarget, v.levelSlew, sampleRate);
                             incoming += cutPrevious[source][i] * cutRoutingCurrent[source][currentVoice];
                         }
-                        double written = data[writeIndex] * v.preLevel + incoming * v.recLevel;
-                        data[writeIndex] = (float)clamp(written, -1.0, 1.0);
+                        if (Math.abs(v.rate - 1.0) > 1e-6 && frac > 1e-6 && writeIndex + 1 < data.length) {
+                            // Escrita distribuída entre duas amostras vizinhas (peso pela fração),
+                            // em vez de arredondar para baixo: reduz aliasing com rate != 1.
+                            double w1 = frac, w0 = 1.0 - frac;
+                            double target0 = data[writeIndex] * v.preLevel + incoming * v.recLevel;
+                            double target1 = data[writeIndex + 1] * v.preLevel + incoming * v.recLevel;
+                            data[writeIndex] = (float)clamp(data[writeIndex] + (target0 - data[writeIndex]) * w0, -1.0, 1.0);
+                            data[writeIndex + 1] = (float)clamp(data[writeIndex + 1] + (target1 - data[writeIndex + 1]) * w1, -1.0, 1.0);
+                        } else {
+                            double written = data[writeIndex] * v.preLevel + incoming * v.recLevel;
+                            data[writeIndex] = (float)clamp(written, -1.0, 1.0);
+                        }
                     }
                 }
 
