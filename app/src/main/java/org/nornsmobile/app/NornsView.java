@@ -97,6 +97,7 @@ final class NornsView extends LinearLayout {
                 0, Theme.dp(c, 8), 0, 0));
 
 
+        LinearLayout encs = new LinearLayout(c);
         encs.setOrientation(HORIZONTAL);
         encs.setGravity(Gravity.CENTER);
         for (int i = 1; i <= 3; i++) {
