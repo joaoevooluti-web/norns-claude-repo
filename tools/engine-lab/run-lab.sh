@@ -11,6 +11,6 @@ rm -f "$EXT/lab/norns/CroneTester.sc"
 cp "$HERE"/classes/*.sc "$EXT/lab/"
 (cd "$SRC" && find . -name "*.sc" -exec cp --parents {} "$EXT/lab/script/" \;)
 export LAB_ENGINE="$ENGINE" LAB_OUT="$OUT" QT_QPA_PLATFORM=offscreen
-timeout 240 xvfb-run -a sclang -D "$HERE/lab.scd" > "$OUT/sclang.log" 2>&1
+timeout -k 5 90 xvfb-run -a sclang -D "$HERE/lab.scd" > "$OUT/sclang.log" 2>&1
 echo "exit=$?" >> "$OUT/sclang.log"
 pkill -f scsynth || true
