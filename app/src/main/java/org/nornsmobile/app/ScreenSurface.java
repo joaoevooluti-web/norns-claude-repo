@@ -403,13 +403,19 @@ final class ScreenSurface {
 
     private void prepareText() {
         textPaint.setColor(color(level));
-        textPaint.setTextSize(fontSize);
+        textPaint.setTextSize(fontSize * textScale);
         int idx = Math.max(0, Math.min(faces.length - 1, fontFace - 1));
         textPaint.setTypeface(faces[idx]);
-        // A fonte 1 da norns (04B_03) é bem mais estreita que a monoespaçada do Android
-        // (~4 px/char contra 4,8 em tamanho 8); sem isso, rótulos como "(shift)" invadem o vizinho.
-        textPaint.setTextScaleX(idx == 0 ? 0.8f : 1f);
     }
+
+    /** Escala da fonte do display (0,6–1,2), ajustável pelo usuário na aba NORNS. */
+    private volatile float textScale = 1f;
+
+    void setTextScale(float scale) {
+        textScale = Math.max(0.6f, Math.min(1.2f, scale));
+    }
+
+    float getTextScale() { return textScale; }
 
     double textExtents(String s) {
         prepareText();

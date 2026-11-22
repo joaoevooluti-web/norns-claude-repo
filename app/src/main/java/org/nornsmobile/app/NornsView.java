@@ -69,7 +69,34 @@ final class NornsView extends LinearLayout {
         addView(actions, Theme.margin(Theme.lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
                 0, Theme.dp(c, 10), 0, 0));
 
-        LinearLayout encs = new LinearLayout(c);
+        // Tamanho da fonte do display (ajuda quando textos se sobrepõem).
+        final android.content.SharedPreferences fprefs = c.getSharedPreferences("norns_mobile", Context.MODE_PRIVATE);
+        surface.setTextScale(fprefs.getFloat("screen_font_scale", 1f));
+        LinearLayout fontRow = new LinearLayout(c);
+        fontRow.setOrientation(HORIZONTAL);
+        fontRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView smaller = Theme.button(c, "A−", Theme.PANEL2, Theme.TEXT);
+        TextView bigger = Theme.button(c, "A+", Theme.PANEL2, Theme.TEXT);
+        final TextView fontLabel = Theme.mono(c, "fonte " + Math.round(surface.getTextScale() * 100) + "%", 12, Theme.MUTED);
+        fontLabel.setGravity(Gravity.CENTER);
+        View.OnClickListener fontClick = new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                float f = surface.getTextScale() + (((TextView) v).getText().toString().equals("A+") ? 0.1f : -0.1f);
+                surface.setTextScale(f);
+                f = surface.getTextScale();
+                fprefs.edit().putFloat("screen_font_scale", f).apply();
+                fontLabel.setText("fonte " + Math.round(f * 100) + "%");
+            }
+        };
+        smaller.setOnClickListener(fontClick);
+        bigger.setOnClickListener(fontClick);
+        fontRow.addView(smaller, Theme.weight(1f));
+        fontRow.addView(fontLabel, Theme.weight(2f));
+        fontRow.addView(bigger, Theme.weight(1f));
+        addView(fontRow, Theme.margin(Theme.lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
+                0, Theme.dp(c, 8), 0, 0));
+
+
         encs.setOrientation(HORIZONTAL);
         encs.setGravity(Gravity.CENTER);
         for (int i = 1; i <= 3; i++) {

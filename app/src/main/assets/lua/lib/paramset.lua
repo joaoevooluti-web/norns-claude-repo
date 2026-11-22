@@ -187,8 +187,20 @@ end
 function Control:set(v, silent) self:set_raw(self.controlspec:unmap(v), silent) end
 function Control:delta(d) self:set_raw(self.raw + d * self.controlspec.quantum) end
 
+-- Remove ruído de ponto flutuante de textos (ex.: "3.4999999999999996 s" -> "3.5 s").
+local function tidy_numbers(s)
+  return (string.gsub(s, "(%-?%d+%.%d%d%d%d%d%d%d%d+)", function(num)
+    local n = tonumber(num)
+    if not n then return num end
+    local t = string.format("%.3f", n)
+    t = string.gsub(t, "0+$", "")
+    t = string.gsub(t, "%.$", ".0")
+    return t
+  end))
+end
+
 function Control:string()
-  if self.formatter then return tostring(self.formatter(self)) end
+  if self.formatter then return tidy_numbers(tostring(self.formatter(self))) end
   local s = string.format("%.2f", self:get())
   local u = self.controlspec.units
   if u ~= nil and u ~= "" then s = s .. " " .. u end
