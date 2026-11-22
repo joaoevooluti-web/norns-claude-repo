@@ -1,0 +1,45 @@
+name: Engine Lab (sclang)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  lab:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SuperCollider, plugins and JACK
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y supercollider-language supercollider-server jackd2 xvfb
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y sc3-plugins || echo "sc3-plugins indisponível"
+      - name: Fetch norns crone classes (pinned)
+        run: |
+          git clone https://github.com/monome/norns "$RUNNER_TEMP/norns"
+          git -C "$RUNNER_TEMP/norns" checkout 227aa0442181e3eab3fc189ee6b5342648ce7300
+          echo "NORNS_DIR=$RUNNER_TEMP/norns" >> "$GITHUB_ENV"
+      - name: Start dummy JACK
+        run: |
+          export JACK_NO_AUDIO_RESERVATION=1
+          nohup jackd -r -d dummy -r 48000 -p 1024 > /tmp/jack.log 2>&1 &
+          sleep 4; cat /tmp/jack.log
+      - name: Run lab for each engine
+        run: |
+          set +e
+          cd tools/engine-lab
+          run() { bash run-lab.sh "sources/$1" "$2" "$GITHUB_WORKSPACE/report/$2"; }
+          run bline Engine_Bline_Synth
+          run fall Engine_Autumn
+          run flora Engine_BandSaw
+          run pixels Engine_Pixelbangs
+          run time-rhythm Engine_TimeRhythm
+          run awed Engine_Sawed
+          run terrarium Engine_Terrarium
+          true
+      - name: Summarize
+        run: python3 tools/engine-lab/analyze.py report app/src/main/assets/scsynth/plugins | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: engine-lab-report
+          path: report
