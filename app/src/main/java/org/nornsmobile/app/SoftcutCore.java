@@ -396,18 +396,21 @@ final class SoftcutCore {
                                     cutRoutingCurrent[source][currentVoice], sendTarget, v.levelSlew, sampleRate);
                             incoming += cutPrevious[source][i] * cutRoutingCurrent[source][currentVoice];
                         }
-                        if (Math.abs(v.rate - 1.0) > 1e-6 && frac > 1e-6 && writeIndex + 1 < data.length) {
-                            // Escrita distribuída entre duas amostras vizinhas (peso pela fração),
-                            // em vez de arredondar para baixo: reduz aliasing com rate != 1.
-                            double w1 = frac, w0 = 1.0 - frac;
-                            double target0 = data[writeIndex] * v.preLevel + incoming * v.recLevel;
-                            double target1 = data[writeIndex + 1] * v.preLevel + incoming * v.recLevel;
-                            data[writeIndex] = (float)clamp(data[writeIndex] + (target0 - data[writeIndex]) * w0, -1.0, 1.0);
-                            data[writeIndex + 1] = (float)clamp(data[writeIndex + 1] + (target1 - data[writeIndex + 1]) * w1, -1.0, 1.0);
-                        } else {
-                            double written = data[writeIndex] * v.preLevel + incoming * v.recLevel;
-                            data[writeIndex] = (float)clamp(written, -1.0, 1.0);
+                        double written = data[writeIndex] * v.preLevel + incoming * v.recLevel;
+                        data[writeIndex] = (float)clamp(written, -1.0, 1.0);
+                        // Com |rate| > 1 a cabeça pula amostras; preenche as ignoradas (com o mesmo
+                        // dado) em vez de deixar conteúdo antigo intercalado — causa do "bitcrush".
+                        int last = v.lastWriteIndex;
+                        int gap = writeIndex - last;
+                        if (last != Integer.MIN_VALUE && Math.abs(gap) > 1 && Math.abs(gap) <= 64) {
+                            int step = gap > 0 ? 1 : -1;
+                            for (int k = last + step; k != writeIndex; k += step) {
+                                if (k < 0 || k >= data.length) break;
+                                double w = data[k] * v.preLevel + incoming * v.recLevel;
+                                data[k] = (float)clamp(w, -1.0, 1.0);
+                            }
                         }
+                        v.lastWriteIndex = writeIndex;
                     }
                 }
 
@@ -533,6 +536,7 @@ final class SoftcutCore {
         final Filter preFilter = new Filter();
         final Filter postFilter = new Filter();
         volatile double position = 0;
+        int lastWriteIndex = Integer.MIN_VALUE;
         double rate = 1, rateTarget = 1, level = 1, levelTarget = 1;
         double pan = 0, panTarget = 0, panSlew = 0, levelSlew = 0, rateSlew = 0, fadeTime = 0, fade = 1, fadeTarget = 1;
         double filterCutoff = 12000, filterRq = 1, filterState = 0;
