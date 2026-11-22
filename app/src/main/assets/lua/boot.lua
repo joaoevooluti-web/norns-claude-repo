@@ -6397,9 +6397,20 @@ norns.script.run = function()
     if _norns._run_generation ~= generation then return end
     if softcut and softcut._start_native then softcut._start_native() end
   end)
+  local system_param_count = params and params.count or 0
   if type(init) == "function" and not safe(init) then
     _norns.cleanup()
     return false
+  end
+  -- Como na norns, aplica as ações dos parâmetros criados pelo script após o init
+  -- (ex.: circles monta a escala somente na ação de "root note"/"scale mode").
+  if params and params.count > system_param_count then
+    for i = system_param_count + 1, params.count do
+      local prm = params.params[i]
+      if prm and prm.t ~= paramset.tTRIGGER and prm.t ~= paramset.tSEPARATOR and prm.t ~= paramset.tGROUP then
+        if not (prm.t == paramset.tBINARY and prm.behavior == "trigger" and prm.value == 0) and prm.bang then safe(function() prm:bang() end) end
+      end
+    end
   end
   if type(redraw) == "function" and not safe(redraw) then
     _norns.cleanup()
