@@ -2,6 +2,11 @@ name: Engine Lab (sclang)
 
 on:
   workflow_dispatch:
+  push:
+    branches: [fix/monitor-mudo-por-padrao]
+    paths:
+      - 'tools/engine-lab/**'
+      - '.github/workflows/engine-lab.yml'
 
 jobs:
   lab:
