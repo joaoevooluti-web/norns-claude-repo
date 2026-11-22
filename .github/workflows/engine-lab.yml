@@ -42,6 +42,12 @@ jobs:
           run awed Engine_Sawed
           run terrarium Engine_Terrarium
           true
+      - name: Show raw logs (debug)
+        run: |
+          for d in report/Engine_Pixelbangs report/Engine_Autumn; do
+            echo "=== $d sclang.log"; grep -n -B3 -A12 "ERROR" $d/sclang.log | head -80
+            echo "=== $d osc.log (head)"; head -40 $d/osc.log | cut -c1-200
+          done
       - name: Summarize
         run: python3 tools/engine-lab/analyze.py report app/src/main/assets/scsynth/plugins | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
