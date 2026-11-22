@@ -56,7 +56,7 @@ def main(report_dir, plugin_dir):
             for f in sorted(os.listdir(sd)):
                 try: defs += parse_def(os.path.join(sd, f))
                 except Exception as e: defs.append({"name": f, "error": str(e)})
-        engine_defs = [x for x in defs if x.get("name") not in ("adc", "patch_stereo", "patch_pan", "amp_env", "pitch", "monitor_stereo", "monitor_pan") ]
+        engine_defs = [x for x in defs if x.get("name") not in ("adc", "patch_stereo", "patch_pan", "patch_mono", "patch_mono_fb", "play_fade", "rec_smooth", "amp_env", "pitch", "monitor_stereo", "monitor_pan") and not x.get("name","").startswith("temp__") ]
         ugens = sorted({u for x in engine_defs for u in x.get("ugens", [])} - CORE)
         missing = [u for u in ugens if blobs and not any(u.encode() in bl for bl in blobs)]
         cmds = re.findall(r"^### CMD (\S+) (\S*) args=", log, re.M)

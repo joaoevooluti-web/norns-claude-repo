@@ -32,7 +32,7 @@ srv.waitForBoot({
 	try {
 	engine.commands.do({ arg cmd;
 		var fmt = cmd.format.asString;
-		var args = fmt.asArray.collect({ arg c;
+		var args = fmt.asList.collect({ arg c;
 			switch(c, $f, { 0.5 }, $i, { 1 }, $s, { "test" }, { 0 });
 		});
 		LabNetAddr.mark("CMD " ++ cmd.name ++ " " ++ fmt ++ " args=" ++ args.asString);
