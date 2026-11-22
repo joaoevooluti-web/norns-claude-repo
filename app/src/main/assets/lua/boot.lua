@@ -6275,6 +6275,17 @@ local function tidy_value_text(s)
   return s
 end
 
+-- Parâmetros sem efeito no backend atual (DSP de efeitos não roteado no mixer nativo).
+function _norns.param_unavailable(r)
+  local native = engine and (engine._native_state == "native" or engine._native_state == "loading")
+  if not native then return false end
+  local id = tostring(r.id or "")
+  local name = string.upper(tostring(r.name or ""))
+  if id == "reverb" or id == "compressor" then return true end
+  if string.sub(id, 1, 4) == "rev_" or string.sub(id, 1, 5) == "comp_" then return true end
+  return r.kind == "group" and (name == "REVERB" or name == "COMPRESSOR")
+end
+
 function _norns.params_serialize()
   local rows = params:ui_rows(true)
   local out = {}
@@ -6282,7 +6293,7 @@ function _norns.params_serialize()
     local r = rows[i]
     local norm = r.norm
     if norm ~= norm then norm = 0 end
-    out[#out + 1] = table.concat({r.kind, clean(r.id), clean(r.name), clean((r.kind == "control" or r.kind == "number") and tidy_value_text(r.str) or r.str), string.format("%.6f", norm), tostring(norns.state.pset_last or 1), clean(r.path or "")}, "\t")
+    out[#out + 1] = table.concat({r.kind, clean(r.id), clean(r.name), clean((r.kind == "control" or r.kind == "number") and tidy_value_text(r.str) or r.str), string.format("%.6f", norm), tostring(norns.state.pset_last or 1), clean(r.path or ""), _norns.param_unavailable(r) and "0" or "1"}, "\t")
   end
   return table.concat(out, "\n")
 end

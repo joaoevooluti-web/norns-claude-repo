@@ -50,6 +50,7 @@ final class ParamsView extends LinearLayout {
         String path = "";
         double norm;
         int presetSlot = 1;
+        boolean available = true;
     }
 
     private static final class Row {
@@ -57,6 +58,7 @@ final class ParamsView extends LinearLayout {
         TextView value;
         SeekBar seek;
         boolean tracking = false;
+        View card;
     }
 
     private final Context ctx;
@@ -244,6 +246,7 @@ final class ParamsView extends LinearLayout {
                 try { p.presetSlot = Integer.parseInt(f[5]); } catch (NumberFormatException ignored) { p.presetSlot = 1; }
             }
             if (f.length > 6) p.path = unescape(f[6]);
+            if (f.length > 7) p.available = !f[7].equals("0");
             try {
                 p.norm = Double.parseDouble(f[4]);
             } catch (NumberFormatException e) {
@@ -259,6 +262,7 @@ final class ParamsView extends LinearLayout {
             Row r = rows.get(i);
             P p = ps.get(i);
             r.p = p;
+            if (r.card != null) r.card.setAlpha(p.available ? 1f : 0.4f);
             if (r.value != null) r.value.setText(p.kind.equals("file") && p.str.length() == 0 ? "Selecionar arquivo" : p.str);
             if (r.seek != null && !r.tracking) r.seek.setProgress((int) Math.round(p.norm * 1000.0));
         }
@@ -307,6 +311,8 @@ final class ParamsView extends LinearLayout {
             TextView h = Theme.label(ctx, p.name.toUpperCase(), 11, Theme.ACCENT);
             h.setTypeface(Typeface.DEFAULT_BOLD);
             h.setPadding(Theme.dp(ctx, 2), Theme.dp(ctx, 18), 0, Theme.dp(ctx, 4));
+            row.card = h;
+            h.setAlpha(p.available ? 1f : 0.4f);
             list.addView(h, Theme.lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             return row;
         }
@@ -314,6 +320,8 @@ final class ParamsView extends LinearLayout {
         LinearLayout card = new LinearLayout(ctx);
         card.setOrientation(VERTICAL);
         card.setBackground(Theme.box(Theme.PANEL, Theme.dp(ctx, 10)));
+        row.card = card;
+        card.setAlpha(p.available ? 1f : 0.4f);
         card.setPadding(Theme.dp(ctx, 12), Theme.dp(ctx, 8), Theme.dp(ctx, 12), Theme.dp(ctx, 8));
         LinearLayout.LayoutParams clp = Theme.margin(
                 Theme.lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
