@@ -29,9 +29,10 @@ srv.waitForBoot({
 	LabNetAddr.mark("ENGINE_LOAD_" ++ if(done, "OK", "TIMEOUT"));
 	srv.sync;
 	LabNetAddr.mark("POLLS " ++ engine.pollNames.asArray.collect(_.asString).join(","));
+	try {
 	engine.commands.do({ arg cmd;
 		var fmt = cmd.format.asString;
-		var args = fmt.collect({ arg c;
+		var args = fmt.asArray.collect({ arg c;
 			switch(c, $f, { 0.5 }, $i, { 1 }, $s, { "test" }, { 0 });
 		});
 		LabNetAddr.mark("CMD " ++ cmd.name ++ " " ++ fmt ++ " args=" ++ args.asString);
@@ -42,6 +43,9 @@ srv.waitForBoot({
 		};
 		0.2.wait;
 	});
+	} { arg err;
+		LabNetAddr.mark("LAB_ERROR " ++ err.errorString);
+	};
 	srv.sync;
 	LabNetAddr.mark("DONE");
 	0.exit;
