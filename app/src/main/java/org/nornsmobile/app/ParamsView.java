@@ -38,6 +38,8 @@ final class ParamsView extends LinearLayout {
         void onPresetWrite(int slot);
 
         void onPresetDelete(int slot);
+        void onStateExport();
+        void onStateImport();
     }
 
     private static final class P {
@@ -128,6 +130,19 @@ final class ParamsView extends LinearLayout {
             }
         });
         presetPanel.addView(actions);
+        LinearLayout fileActions = new LinearLayout(c);
+        fileActions.setOrientation(HORIZONTAL);
+        TextView exportState = Theme.button(c, "EXPORTAR ESTADO", Theme.PANEL, Theme.TEXT);
+        TextView importState = Theme.button(c, "IMPORTAR ESTADO", Theme.PANEL, Theme.TEXT);
+        fileActions.addView(exportState, Theme.weight(1f));
+        fileActions.addView(importState, Theme.weight(1f));
+        exportState.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { cb.onStateExport(); }
+        });
+        importState.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { cb.onStateImport(); }
+        });
+        presetPanel.addView(fileActions);
         addView(presetPanel, Theme.lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         empty = Theme.label(c, "Rode um script para ver os parâmetros dele aqui.", 14, Theme.MUTED);

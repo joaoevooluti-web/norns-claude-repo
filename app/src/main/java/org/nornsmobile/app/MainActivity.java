@@ -47,6 +47,8 @@ public class MainActivity extends Activity {
 
     private static final int REQ_IMPORT = 1001;
     private static final int REQ_EXPORT = 1002;
+    private static final int REQ_STATE_EXPORT = 1003;
+    private static final int REQ_STATE_IMPORT = 1004;
     private static final int REQ_AUDIO_INPUT = 1003;
 
     private static final int TAB_LIB = 0;
@@ -432,6 +434,41 @@ public class MainActivity extends Activity {
             public void onPresetDelete(int slot) {
                 host.paramPresetDelete(slot);
             }
+
+            @Override
+            public void onStateExport() {
+                host.paramStateExport(new java.util.function.Consumer<Boolean>() {
+                    @Override public void accept(final Boolean ok) {
+                        runOnUiThread(new Runnable() {
+                            @Override public void run() {
+                                if (!ok) {
+                                    Toast.makeText(MainActivity.this, "Nenhum script ativo ou falha ao gravar o estado.", Toast.LENGTH_LONG).show();
+                                    return;
+                                }
+                                Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                                i.addCategory(Intent.CATEGORY_OPENABLE);
+                                i.setType("application/octet-stream");
+                                i.putExtra(Intent.EXTRA_TITLE, "norns-estado.pset");
+                                try { startActivityForResult(i, REQ_STATE_EXPORT); }
+                                catch (RuntimeException e) {
+                                    Toast.makeText(MainActivity.this, "Não foi possível abrir o seletor de destino.", Toast.LENGTH_LONG).show();
+                                }
+                            }
+                        });
+                    }
+                });
+            }
+
+            @Override
+            public void onStateImport() {
+                Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                i.addCategory(Intent.CATEGORY_OPENABLE);
+                i.setType("*/*");
+                try { startActivityForResult(i, REQ_STATE_IMPORT); }
+                catch (RuntimeException e) {
+                    Toast.makeText(MainActivity.this, "Não foi possível abrir o seletor de arquivos.", Toast.LENGTH_LONG).show();
+                }
+            }
         });
         logView = new LogView(this);
 
@@ -724,6 +761,46 @@ public class MainActivity extends Activity {
                 uris.add(data.getData());
             }
             importUris(uris);
+        } else if (requestCode == REQ_STATE_EXPORT || requestCode == REQ_STATE_IMPORT) {
+            final Uri u = data.getData();
+            if (u == null) return;
+            final boolean exporting = requestCode == REQ_STATE_EXPORT;
+            new Thread(new Runnable() {
+                @Override public void run() {
+                    final File transfer = new File(dust.data, "state-transfer.pset");
+                    String result;
+                    try {
+                        if (exporting) {
+                            OutputStream out = getContentResolver().openOutputStream(u);
+                            if (out == null) throw new IOException("não foi possível gravar no destino");
+                            try {
+                                java.io.FileInputStream in = new java.io.FileInputStream(transfer);
+                                try { Dust.copyStream(in, out); } finally { Dust.closeQuietly(in); }
+                                out.flush();
+                            } finally { Dust.closeQuietly(out); }
+                            result = "Estado exportado.";
+                        } else {
+                            copyUriTo(u, transfer);
+                            host.paramStateImport(new java.util.function.Consumer<Boolean>() {
+                                @Override public void accept(final Boolean ok) {
+                                    runOnUiThread(new Runnable() {
+                                        @Override public void run() {
+                                            Toast.makeText(MainActivity.this, ok ? "Estado importado." : "Não foi possível importar (há um script rodando?).", Toast.LENGTH_LONG).show();
+                                        }
+                                    });
+                                }
+                            });
+                            return;
+                        }
+                    } catch (Exception e) {
+                        result = "Falha: " + e.getMessage();
+                    }
+                    final String msg = result;
+                    runOnUiThread(new Runnable() {
+                        @Override public void run() { Toast.makeText(MainActivity.this, msg, Toast.LENGTH_LONG).show(); }
+                    });
+                }
+            }).start();
         } else if (requestCode == REQ_EXPORT) {
             Uri u = data.getData();
             if (u != null) exportTo(u);

@@ -553,6 +553,24 @@ final class LuaHost {
         return source != null && NATIVE_ENGINE_PATTERN.matcher(source).find();
     }
 
+    private static final java.util.regex.Pattern ENGINE_NAME_PATTERN = java.util.regex.Pattern.compile(
+            "engine\\.name\\s*=\\s*[\"']([^\"']+)[\"']");
+    private static final java.util.Set<String> SUPPORTED_ENGINES = new java.util.HashSet<String>(
+            java.util.Arrays.asList("PolyPerc", "Stratum", "32Harmony", "SimpleDelayKolor", "none"));
+
+    /** Nome do engine citado no script, ou null quando o script não usa engine. */
+    static String scriptEngineName(String source) {
+        if (source == null) return null;
+        java.util.regex.Matcher m = ENGINE_NAME_PATTERN.matcher(source);
+        return m.find() ? m.group(1) : null;
+    }
+
+    /** Engine exigido pelo script mas ainda não disponível neste app, ou null se compatível. */
+    static String unsupportedEngine(File script) {
+        String name = scriptEngineName(readScriptHead(script));
+        return name == null || SUPPORTED_ENGINES.contains(name) ? null : name;
+    }
+
     private static String readScriptHead(File script) {
         try {
             byte[] bytes = java.nio.file.Files.readAllBytes(script.toPath());
@@ -623,6 +641,18 @@ final class LuaHost {
             AppLog.e(String.valueOf(e.getMessage()));
         } catch (Throwable t) {
             AppLog.e("Erro interno (" + fn + "): " + t);
+        }
+    }
+
+    private boolean callNornsBool(String fn) {
+        try {
+            Globals g = globals;
+            if (g == null) return false;
+            LuaValue f = g.get("_norns").get(fn);
+            return f.isfunction() && f.call().toboolean();
+        } catch (Throwable t) {
+            AppLog.e("Erro interno (" + fn + "): " + t);
+            return false;
         }
     }
 
@@ -1391,6 +1421,23 @@ final class LuaHost {
     void paramPresetWrite(final int slot) {
         post(new Runnable() {
             @Override public void run() { callNorns("param_preset_write", LuaValue.valueOf(slot)); }
+        });
+    }
+
+    /** Grava o estado atual em dust/data/state-transfer.pset e avisa (thread do Lua) o resultado. */
+    void paramStateExport(final java.util.function.Consumer<Boolean> done) {
+        post(new Runnable() {
+            @Override public void run() {
+                done.accept(callNornsBool("param_state_export"));
+            }
+        });
+    }
+
+    void paramStateImport(final java.util.function.Consumer<Boolean> done) {
+        post(new Runnable() {
+            @Override public void run() {
+                done.accept(callNornsBool("param_state_import"));
+            }
         });
     }
 

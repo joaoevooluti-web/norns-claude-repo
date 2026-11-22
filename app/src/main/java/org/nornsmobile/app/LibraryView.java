@@ -148,10 +148,30 @@ final class LibraryView extends LinearLayout {
             list.addView(t, Theme.lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             return;
         }
+        // Separa scripts que exigem engines indisponíveis: vão para o fim, esmaecidos.
+        List<File> usable = new ArrayList<File>();
+        List<File> blocked = new ArrayList<File>();
         for (int i = 0; i < files.size(); i++) {
-            list.addView(buildRow(files.get(i)), Theme.margin(
+            File f = files.get(i);
+            if (f.isDirectory() && Dust.isScriptDir(f) && LuaHost.unsupportedEngine(Dust.mainScript(f)) != null) blocked.add(f);
+            else usable.add(f);
+        }
+        for (int i = 0; i < usable.size(); i++) {
+            list.addView(buildRow(usable.get(i)), Theme.margin(
                     Theme.lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
                     0, Theme.dp(ctx, 4), 0, 0));
+        }
+        if (!blocked.isEmpty()) {
+            TextView sep = Theme.label(ctx, "INDISPONÍVEIS NESTE APP (engine ausente)", 11, Theme.MUTED);
+            sep.setPadding(Theme.dp(ctx, 8), Theme.dp(ctx, 16), 0, Theme.dp(ctx, 4));
+            list.addView(sep, Theme.lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            for (int i = 0; i < blocked.size(); i++) {
+                View r = buildRow(blocked.get(i));
+                r.setAlpha(0.45f);
+                list.addView(r, Theme.margin(
+                        Theme.lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
+                        0, Theme.dp(ctx, 4), 0, 0));
+            }
         }
     }
 
@@ -171,7 +191,8 @@ final class LibraryView extends LinearLayout {
         String sub;
         if (script) {
             icon = "🎼";
-            sub = "script";
+            String missing = LuaHost.unsupportedEngine(Dust.mainScript(f));
+            sub = missing == null ? "script" : "script · engine " + missing + " indisponível";
         } else if (dir) {
             icon = "📁";
             String[] kids = f.list();

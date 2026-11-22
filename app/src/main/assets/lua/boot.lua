@@ -6327,6 +6327,24 @@ function _norns.param_preset_write(slot)
   end)
 end
 
+-- Exportar/importar o estado atual como arquivo .pset (copiado pelo app via seletor de arquivos).
+function _norns.param_state_export()
+  local ok = false
+  safe(function()
+    ok = params:write(_path.data .. "state-transfer.pset", norns.state.name or "estado") and true or false
+  end)
+  return ok
+end
+
+function _norns.param_state_import()
+  local ok = false
+  safe(function()
+    ok = params:read(_path.data .. "state-transfer.pset") and true or false
+    if ok then host.params_changed() end
+  end)
+  return ok
+end
+
 function _norns.param_preset_delete(slot)
   safe(function()
     if type(slot) ~= "number" or slot < 1 or slot > 16 then return end
