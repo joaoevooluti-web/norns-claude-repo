@@ -55,9 +55,13 @@ jobs:
           run sources/molly-the-poly Engine_MollyThePoly
           run sources/passersby Engine_Passersby
           run sources/thebangs Engine_Thebangs
-          # PolySub e TestSine vêm do próprio norns (pasta sc/engines da revisão fixada acima)
-          run "$NORNS_DIR/sc/engines" Engine_PolySub
-          run "$NORNS_DIR/sc/engines" Engine_TestSine
+          # PolySub e TestSine vêm do próprio norns (revisão fixada acima). Cada um roda sozinho:
+          # o PolySub registra o SynthDef ao iniciar a classe e contaminaria o relatório dos outros.
+          for e in PolySub TestSine; do
+            mkdir -p "$RUNNER_TEMP/core-$e"
+            cp "$NORNS_DIR/sc/engines/Engine_$e.sc" "$RUNNER_TEMP/core-$e/"
+            run "$RUNNER_TEMP/core-$e" "Engine_$e"
+          done
           run "$EXT_DIR/glut" Engine_Glut
           run "$EXT_DIR/awake-rings" Engine_KarplusRings
           true
