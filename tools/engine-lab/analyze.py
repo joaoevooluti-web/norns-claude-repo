@@ -59,6 +59,11 @@ def main(report_dir, plugin_dir):
         engine_defs = [x for x in defs if x.get("name") not in ("adc", "patch_stereo", "patch_pan", "patch_mono", "patch_mono_fb", "play_fade", "rec_smooth", "amp_env", "pitch", "monitor_stereo", "monitor_pan") and not x.get("name","").startswith("temp__") ]
         ugens = sorted({u for x in engine_defs for u in x.get("ugens", [])} - CORE)
         missing = [u for u in ugens if blobs and not any(u.encode() in bl for bl in blobs)]
+        # Engines que tocam uma função (`{ ... }.play`) geram SynthDefs `temp__*`; ficam fora da
+        # contagem acima, mas os UGens deles também precisam existir no app.
+        temp_defs = [x for x in defs if x.get("name", "").startswith("temp__")]
+        temp_ugens = sorted({u for x in temp_defs for u in x.get("ugens", [])} - CORE)
+        temp_missing = [u for u in temp_ugens if blobs and not any(u.encode() in bl for bl in blobs)]
         cmds = re.findall(r"^### CMD (\S+) (\S*) args=", log, re.M)
         loaded = "ENGINE_LOAD_OK" in log
         compile_err = re.findall(r"^(ERROR: .*|Class not defined.*)$", sc, re.M)[:5]
@@ -75,6 +80,8 @@ def main(report_dir, plugin_dir):
             "loaded": loaded, "compile_errors": compile_err,
             "synthdefs": [x["name"] for x in engine_defs],
             "ugens": ugens, "ugens_missing_in_app": missing,
+            "temp_synthdefs": len(temp_defs), "temp_ugens": temp_ugens,
+            "temp_ugens_missing_in_app": temp_missing,
             "commands": len(cmds), "commands_sending_osc": len(cmds) - len(silent),
             "commands_without_osc": silent,
             "polls": (re.findall(r"^### POLLS (.*)$", log, re.M) or [""])[0],
@@ -89,6 +96,11 @@ def main(report_dir, plugin_dir):
         lines.append(f"- SynthDefs: {len(v['synthdefs'])}; comandos: {v['commands']} ({v['commands_sending_osc']} geram OSC)")
         lines.append(f"- UGens usados: {', '.join(v['ugens']) or '-'}")
         lines.append(f"- UGens sem plugin no app: {', '.join(v['ugens_missing_in_app']) or 'nenhum'}")
+        if v["temp_synthdefs"]:
+            lines.append(f"- SynthDefs temporários (.play): {v['temp_synthdefs']}; UGens: {', '.join(v['temp_ugens']) or '-'}; "
+                         f"sem plugin no app: {', '.join(v['temp_ugens_missing_in_app']) or 'nenhum'}")
+        if v["commands_without_osc"]:
+            lines.append("- comandos sem OSC: " + ", ".join(v["commands_without_osc"][:40]))
         if v["compile_errors"]: lines.append("- erros: " + " | ".join(v["compile_errors"]))
         lines.append("")
     open(os.path.join(report_dir, "SUMMARY.md"), "w").write("\n".join(lines))

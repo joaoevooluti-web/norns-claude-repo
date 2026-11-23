@@ -24,6 +24,17 @@ jobs:
           git clone https://github.com/monome/norns "$RUNNER_TEMP/norns"
           git -C "$RUNNER_TEMP/norns" checkout 227aa0442181e3eab3fc189ee6b5342648ce7300
           echo "NORNS_DIR=$RUNNER_TEMP/norns" >> "$GITHUB_ENV"
+      - name: Fetch engines whose repos carry no license (not vendored; pinned)
+        run: |
+          # Estes repositórios não têm arquivo de licença, então o código não é copiado para cá:
+          # a CI baixa a revisão exata, usa só como entrada do laboratório e descarta.
+          fetch() { # nome url commit
+            git clone --quiet "$2" "$RUNNER_TEMP/ext/$1"
+            git -C "$RUNNER_TEMP/ext/$1" checkout --quiet "$3"
+          }
+          fetch glut https://github.com/artfwo/glut f92324261df2603333ea21c8e9850ff98432776f
+          fetch awake-rings https://github.com/GoneCaving/awake-rings d5df0b6a92d215da28e5b94df2f8cc2193c8cfa9
+          echo "EXT_DIR=$RUNNER_TEMP/ext" >> "$GITHUB_ENV"
       - name: Start dummy JACK
         run: |
           export JACK_NO_AUDIO_RESERVATION=1
@@ -33,20 +44,28 @@ jobs:
         run: |
           set +e
           cd tools/engine-lab
-          run() { bash run-lab.sh "sources/$1" "$2" "$GITHUB_WORKSPACE/report/$2"; }
-          run bline Engine_Bline_Synth
-          run fall Engine_Autumn
-          run flora Engine_BandSaw
-          run pixels Engine_Pixelbangs
-          run time-rhythm Engine_TimeRhythm
-          run awed Engine_Sawed
-          run terrarium Engine_Terrarium
+          run() { bash run-lab.sh "$1" "$2" "$GITHUB_WORKSPACE/report/$2"; }
+          run sources/bline Engine_Bline_Synth
+          run sources/fall Engine_Autumn
+          run sources/flora Engine_BandSaw
+          run sources/pixels Engine_Pixelbangs
+          run sources/time-rhythm Engine_TimeRhythm
+          run sources/awed Engine_Sawed
+          run sources/terrarium Engine_Terrarium
+          run sources/molly-the-poly Engine_MollyThePoly
+          run sources/passersby Engine_Passersby
+          run sources/thebangs Engine_Thebangs
+          # PolySub e TestSine vêm do próprio norns (pasta sc/engines da revisão fixada acima)
+          run "$NORNS_DIR/sc/engines" Engine_PolySub
+          run "$NORNS_DIR/sc/engines" Engine_TestSine
+          run "$EXT_DIR/glut" Engine_Glut
+          run "$EXT_DIR/awake-rings" Engine_KarplusRings
           true
-      - name: Show raw logs (debug)
+      - name: Show load and compile errors (debug)
         run: |
-          for d in report/Engine_Pixelbangs report/Engine_Autumn; do
-            echo "=== $d sclang.log"; grep -n -B3 -A12 "ERROR" $d/sclang.log | head -80
-            echo "=== $d osc.log (head)"; head -40 $d/osc.log | cut -c1-200
+          for d in report/*/; do
+            echo "=== $d"
+            grep -h -m6 -E "^(ERROR|### ENGINE_LOAD_|### LAB_ERROR|### CMD_ERROR|exit=)" "$d/sclang.log" "$d/osc.log" 2>/dev/null | cut -c1-220
           done
       - name: Summarize
         run: python3 tools/engine-lab/analyze.py report app/src/main/assets/scsynth/plugins | tee -a "$GITHUB_STEP_SUMMARY"
