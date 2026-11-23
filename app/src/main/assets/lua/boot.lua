@@ -6234,6 +6234,10 @@ function _norns.load_script(path)
     host.log("Não foi possível ler " .. tostring(path), true)
     return false
   end
+  -- Correções pontuais de compatibilidade para scripts conhecidos (ver compat-patches).
+  if type(_norns.patch_script_source) == "function" then
+    src = _norns.patch_script_source(src, folder .. "/" .. file)
+  end
   local fn, err = load(strip_bom(src), "@" .. folder .. "/" .. file)
   if not fn then
     host.log(tostring(err), true)
@@ -6249,6 +6253,49 @@ function _norns.load_script(path)
   _norns._run_generation = nil
   return norns.script.run()
 end
+
+-- >>> compat-patches
+-- Correções de compatibilidade aplicadas ao código-fonte de scripts conhecidos, em memória,
+-- antes do load(); o arquivo do usuário não é alterado. Cada regra exige a assinatura do
+-- script e só troca um trecho que ocorra exatamente uma vez: se o autor corrigir o script
+-- no upstream, a regra deixa de casar e o código original é mantido.
+-- Fica em campos de _norns porque o boot.lua está perto do limite de 200 locals do Lua.
+_norns.source_patches = {
+  {
+    -- circles (JakeCarter): `note` é um número MIDI (vem de scale_notes, o mesmo valor que
+    -- segue para MIDI e crow), mas o ramo de áudio o repassa direto a engine.hz(), que espera
+    -- Hz. O PolyPerc tocava ~60-70 Hz e a escala quase não alterava o som.
+    id = "circles: engine.hz recebia nota MIDI",
+    requires = {
+      "function%s+handleCircleBurst%s*%(%s*circle%s*%)",
+      "engine%.name%s*=%s*[\"']PolyPerc[\"']",
+      "local%s+note%s*=%s*[%w_]+[%(%[]",
+    },
+    find = "engine.hz(note)",
+    replace = "engine.hz(require(\"musicutil\").note_num_to_freq(note))",
+  },
+}
+
+function _norns.patch_script_source(src, label)
+  if type(src) ~= "string" then return src end
+  local rules = _norns.source_patches
+  for i = 1, #rules do
+    local rule = rules[i]
+    local applies = true
+    for j = 1, #rule.requires do
+      if not string.find(src, rule.requires[j]) then applies = false; break end
+    end
+    if applies then
+      local first, last = string.find(src, rule.find, 1, true)
+      if first and not string.find(src, rule.find, last + 1, true) then
+        src = string.sub(src, 1, first - 1) .. rule.replace .. string.sub(src, last + 1)
+        host.log("Compat: " .. rule.id .. " [" .. tostring(label) .. "]", false)
+      end
+    end
+  end
+  return src
+end
+-- <<< compat-patches
 
 -- ---- parâmetros: ponte com a interface
 local function clean(s)

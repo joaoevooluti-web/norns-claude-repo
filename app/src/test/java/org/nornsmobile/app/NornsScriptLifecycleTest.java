@@ -270,4 +270,38 @@ public class NornsScriptLifecycleTest {
                 "norns-repeated-script-reload.lua").call();
         assertTrue("repeated reloads must isolate script generations", result.toboolean());
     }
+
+    @Test public void loaderAppliesKnownScriptCompatPatchBeforeTheScriptRuns() throws Exception {
+        Globals g = lifecycleRuntime();
+        LuaValue result = g.load(
+                "script_sources['/scripts/circlish.lua'] = [[\n"
+                + "engine.name = 'PolyPerc'\n"
+                + "function noteForCircle(circle) return 65 end\n"
+                + "function handleCircleBurst(circle)\n"
+                + "  local note = noteForCircle(circle)\n"
+                + "  engine.hz(note)\n"
+                + "end\n"
+                + "init = function() end\n"
+                + "]]\n"
+                + "script_sources['/scripts/plain.lua'] = [[\n"
+                + "engine.name = 'PolyPerc'\n"
+                + "function play(note) engine.hz(note) end\n"
+                + "init = function() end\n"
+                + "]]\n"
+                + "engine.hz = function(value) last_hz = value end\n"
+                + "require = function(name) assert(name == 'musicutil'); "
+                + "return {note_num_to_freq = function(n) return 440 * 2 ^ ((n - 69) / 12) end} end\n"
+                // circles passa a nota MIDI (65) a engine.hz: o loader deve entregar Hz ao engine.
+                + "assert(norns.script.load('circlish.lua'))\n"
+                + "assert(string.find(last_log, 'Compat: circles', 1, true), 'patch deve ser registrado no log')\n"
+                + "handleCircleBurst({})\n"
+                + "assert(math.abs(last_hz - 349.2282314) < 0.0001, 'esperava Hz, recebeu ' .. tostring(last_hz))\n"
+                // Script sem a assinatura do circles continua intacto.
+                + "assert(norns.script.load('plain.lua'))\n"
+                + "play(65)\n"
+                + "assert(last_hz == 65, 'script comum nao pode ser alterado')\n"
+                + "return true",
+                "norns-compat-patch-on-load.lua").call();
+        assertTrue("known-script compat patch must run in the production loader", result.toboolean());
+    }
 }
