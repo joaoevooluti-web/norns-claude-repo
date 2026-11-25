@@ -272,7 +272,7 @@ public class BootLuaSyntaxTest {
     public void ioLinesClosesTheOpenedFileAtEof() throws Exception {
         String boot = readLuaAsset("boot.lua");
         int start = boot.indexOf("local FileR = {}");
-        int end = boot.indexOf("function io.popen()", start);
+        int end = boot.indexOf("function io.popen(", start);
         assertTrue("sandbox file APIs must exist", start >= 0 && end > start);
 
         Globals globals = JsePlatform.standardGlobals();

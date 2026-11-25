@@ -103,6 +103,20 @@ function util.scandir(directory)
   return _host.list_dir(directory) or {}
 end
 
+-- Run a shell command and return its output, as on norns. Only the small POSIX subset that
+-- nornsmobile_shell understands works here; any other command returns an empty string.
+function util.os_capture(cmd, raw)
+  local f = io.popen(cmd, 'r')
+  if not f then return "" end
+  local s = f:read('*a') or ""
+  f:close()
+  if raw then return s end
+  s = string.gsub(s, '^%s+', '')
+  s = string.gsub(s, '%s+$', '')
+  s = string.gsub(s, '[\n\r]+', ' ')
+  return s
+end
+
 function util.s_to_hms(s)
   local h = math.floor(s / 3600)
   local m = math.floor((s - h * 3600) / 60)

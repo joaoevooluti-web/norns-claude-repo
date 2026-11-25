@@ -520,7 +520,17 @@ function io.lines(path, fmt)
   end
 end
 
-function io.popen() return nil, "io.popen não é suportado" end
+-- io.popen e os.execute: o Android não tem shell. O módulo nornsmobile_shell interpreta um
+-- subconjunto POSIX (mkdir, rm, cp, mv, ls...) restrito à pasta dust; qualquer outro comando
+-- continua sem suporte e devolve nil + mensagem, como antes.
+function io.popen(cmd, mode)
+  local ok, shell = pcall(require, "nornsmobile_shell")
+  if ok and type(shell) == "table" and type(shell.popen) == "function" then
+    return shell.popen(cmd, mode, FileR)
+  end
+  if not ok and type(host.log) == "function" then host.log("Shell: " .. real_tostring(shell), true) end
+  return nil, "io.popen não é suportado"
+end
 
 local real_os = os
 os = {
@@ -529,7 +539,14 @@ os = {
   date = real_os.date,
   difftime = real_os.difftime,
   getenv = function() return nil end,
-  execute = function() return nil, "os.execute não é suportado" end,
+  execute = function(cmd)
+    local ok, shell = pcall(require, "nornsmobile_shell")
+    if ok and type(shell) == "table" and type(shell.execute) == "function" then
+      return shell.execute(cmd)
+    end
+    if not ok and type(host.log) == "function" then host.log("Shell: " .. real_tostring(shell), true) end
+    return nil, "os.execute não é suportado"
+  end,
   exit = function() error("os.exit está desativado no Norns Mobile", 2) end,
   remove = function(p)
     if host.remove(p) then return true end

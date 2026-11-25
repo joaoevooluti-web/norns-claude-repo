@@ -63,18 +63,52 @@ final class Dust {
 
     // ------------------------------------------------------------------ caminhos
 
-    /** Resolve um caminho (absoluto ou relativo a dust/). Retorna null se sair da pasta dust. */
+    /** Pasta pessoal do usuário "we" no norns de verdade; muitos scripts escrevem esse caminho fixo. */
+    static final String NORNS_HOME = "/home/we";
+
+    /**
+     * Resolve um caminho (absoluto ou relativo a dust/). Retorna null se sair da pasta dust.
+     * Caminhos do norns de verdade ("/home/we/dust/data/x" ou "/home/we/x") são traduzidos para
+     * dentro de dust/ antes da checagem, então ".." continua sem conseguir escapar.
+     */
     File resolve(String path) {
         if (path == null || path.length() == 0) return null;
         try {
-            File f = new File(path);
-            if (!f.isAbsolute()) f = new File(root, path);
+            String inside = nornsRelative(path);
+            File f;
+            if (inside != null) {
+                f = new File(root, inside);
+            } else {
+                f = new File(path);
+                if (!f.isAbsolute()) f = new File(root, path);
+            }
             File c = f.getCanonicalFile();
             if (isInside(c)) return c;
         } catch (IOException e) {
             // ignora
         }
         return null;
+    }
+
+    /**
+     * "/home/we", "/home/we/dust/a" e "/home/we/a" viram "", "a" e "a" (relativos a dust/).
+     * Qualquer outro caminho, inclusive "/home/weird", devolve null e segue sem tradução.
+     */
+    static String nornsRelative(String path) {
+        if (!path.startsWith(NORNS_HOME)) return null;
+        int n = NORNS_HOME.length();
+        if (path.length() > n && path.charAt(n) != '/') return null;
+        String rest = stripLeadingSlashes(path.substring(n));
+        if (rest.equals("dust") || rest.startsWith("dust/")) {
+            rest = stripLeadingSlashes(rest.substring(4));
+        }
+        return rest;
+    }
+
+    private static String stripLeadingSlashes(String s) {
+        int i = 0;
+        while (i < s.length() && s.charAt(i) == '/') i++;
+        return s.substring(i);
     }
 
     boolean isInside(File f) {
@@ -212,6 +246,96 @@ final class Dust {
             if (kids != null) for (File k : kids) deleteRecursive(k);
         }
         return f.delete();
+    }
+
+    /**
+     * Apaga um arquivo ou uma pasta inteira (como "rm -rf"), sempre dentro de dust/. Recusa a raiz
+     * dust e as pastas code/, data/ e audio/, para que um script com uma variável vazia não apague
+     * tudo. Links que apontam para fora de dust/ não são seguidos.
+     */
+    boolean removeAll(File f) {
+        if (f == null || !f.exists() || !isInside(f)) return false;
+        try {
+            File c = f.getCanonicalFile();
+            if (c.equals(root.getCanonicalFile()) || c.equals(code.getCanonicalFile())
+                    || c.equals(data.getCanonicalFile()) || c.equals(audio.getCanonicalFile())) {
+                return false;
+            }
+        } catch (IOException e) {
+            return false;
+        }
+        return deleteInside(f);
+    }
+
+    private boolean deleteInside(File f) {
+        boolean ok = true;
+        if (f.isDirectory()) {
+            File[] kids = f.listFiles();
+            if (kids != null) {
+                for (File k : kids) {
+                    if (!isInside(k)) {
+                        ok = false;
+                        continue;
+                    }
+                    ok &= deleteInside(k);
+                }
+            }
+        }
+        return f.delete() && ok;
+    }
+
+    /**
+     * Copia um arquivo ou, com recursive, uma pasta inteira (como "cp" e "cp -r"). Se o destino for
+     * uma pasta que já existe, o item é copiado para dentro dela. Origem e destino precisam estar
+     * dentro de dust/.
+     */
+    boolean copy(File src, File dst, boolean recursive) {
+        if (src == null || dst == null || !src.exists()) return false;
+        if (!isInside(src) || !isInside(dst)) return false;
+        try {
+            File target = dst.isDirectory() ? new File(dst, src.getName()) : dst;
+            if (!isInside(target)) return false;
+            String from = src.getCanonicalPath();
+            String to = target.getCanonicalPath();
+            if (from.equals(to)) return false;
+            if (src.isDirectory()) {
+                if (!recursive) return false;
+                if (to.startsWith(from + File.separator)) return false;
+                return copyTree(src, target);
+            }
+            File parent = target.getParentFile();
+            if (parent == null || !parent.isDirectory()) return false;
+            return copyFile(src, target);
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    private boolean copyTree(File src, File dst) throws IOException {
+        if (!dst.isDirectory() && !dst.mkdirs()) return false;
+        File[] kids = src.listFiles();
+        if (kids == null) return true;
+        boolean ok = true;
+        for (File k : kids) {
+            if (!isInside(k)) continue;
+            File out = new File(dst, k.getName());
+            ok &= k.isDirectory() ? copyTree(k, out) : copyFile(k, out);
+        }
+        return ok;
+    }
+
+    private static boolean copyFile(File src, File dst) throws IOException {
+        InputStream in = null;
+        OutputStream out = null;
+        try {
+            in = new FileInputStream(src);
+            out = new FileOutputStream(dst);
+            copyStream(in, out);
+            return true;
+        } finally {
+            closeQuietly(in);
+            closeQuietly(out);
+        }
     }
 
     static void copyStream(InputStream in, OutputStream out) throws IOException {

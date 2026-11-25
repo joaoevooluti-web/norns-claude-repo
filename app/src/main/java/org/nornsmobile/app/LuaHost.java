@@ -125,6 +125,8 @@ final class LuaHost {
     private static final int H_AUDIO_LEVEL_ENG = 77;
     private static final int H_AUDIO_LEVEL_CUT = 78;
     private static final int H_SC_PLUGIN_EXISTS = 79;
+    private static final int H_COPY = 80;
+    private static final int H_REMOVE_ALL = 81;
 
     private static final String[] HOST_NAMES = {
             "log", "now", "wake_at", "read_asset", "read_file", "write_file", "file_exists",
@@ -141,7 +143,7 @@ final class LuaHost {
             "tape_record_stop", "tape_level", "tape_level_cut", "resolve_sample_path", "audio_file_info",
             "audio_level_dac", "audio_pitch_on", "audio_pitch_off", "audio_level_monitor",
             "audio_level_adc", "audio_monitor_mode", "tape_state", "disk_free_bytes", "audio_fx",
-            "audio_level_eng", "audio_level_cut", "sc_plugin_exists"
+            "audio_level_eng", "audio_level_cut", "sc_plugin_exists", "copy", "remove_all"
     };
 
     // operações do objeto screen (a ordem define o código de cada função)
@@ -1758,6 +1760,18 @@ final class LuaHost {
                 File f = dust.resolve(a.checkjstring(1));
                 if (f == null || !f.exists()) return LuaValue.FALSE;
                 return LuaValue.valueOf(f.delete());
+            }
+            case H_COPY: {
+                // cp e cp -r do shell emulado: copia arquivo ou pasta dentro de dust/ (copy(origem, destino, recursivo))
+                File from = dust.resolve(a.checkjstring(1));
+                File to = dust.resolve(a.checkjstring(2));
+                if (from == null || to == null) return LuaValue.FALSE;
+                return LuaValue.valueOf(dust.copy(from, to, a.toboolean(3)));
+            }
+            case H_REMOVE_ALL: {
+                // rm -r do shell emulado: apaga a pasta inteira, menos dust/, code/, data/ e audio/
+                File f = dust.resolve(a.checkjstring(1));
+                return LuaValue.valueOf(f != null && dust.removeAll(f));
             }
             case H_RENAME: {
                 File f1 = dust.resolve(a.checkjstring(1));
