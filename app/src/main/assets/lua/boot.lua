@@ -149,6 +149,9 @@ encoders = norns.encoders
 
 -- ===================================================================== require / include
 local loaded = package.loaded
+-- O LuaJ não define package.cpath (o norns real define). Scripts que fazem `package.cpath = package.cpath .. ";..."`
+-- quebrariam com "attempt to concatenate nil"; o require do app não usa esse caminho, então basta existir.
+package.cpath = package.cpath or ""
 
 local function strip_bom(src)
   if string.sub(src, 1, 3) == "\239\187\191" then return string.sub(src, 4) end
