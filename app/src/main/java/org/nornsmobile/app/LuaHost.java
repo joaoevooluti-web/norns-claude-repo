@@ -508,6 +508,8 @@ final class LuaHost {
         try {
             startSuperCollider(script);
             Globals g = JsePlatform.standardGlobals();
+            // O LuaJ ignora largura/precisão em %f e trunca %d para 32 bits: string.format e tostring seguem o printf do C.
+            NornsStringFormat.install(g);
             installHost(g);
             globals = g;
             String bootSrc = readAsset("lua/boot.lua");
