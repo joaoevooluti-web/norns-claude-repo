@@ -598,14 +598,29 @@ public class MainActivity extends Activity {
     // ------------------------------------------------------------------ exemplos embutidos
 
     private void installExamples() {
-        File marker = new File(dust.root, ".examples-" + VERSION);
-        if (marker.exists()) return;
         try {
+            // O marcador depende da lista de arquivos embutidos: um script novo no APK (ex.: mobile_selftest) é
+            // copiado mesmo quando a versão do app não mudou. A cópia nunca sobrescreve o que já existe.
+            List<String> bundled = new ArrayList<String>();
+            listAssetFiles("dust", bundled);
+            String markerName = Dust.examplesMarkerName(VERSION, bundled);
+            File marker = new File(dust.root, markerName);
+            if (marker.exists()) return;
             copyAssetTree("dust", dust.root);
             marker.createNewFile();
+            Dust.removeStaleExampleMarkers(dust.root, markerName);
         } catch (IOException e) {
             AppLog.e("Não foi possível instalar os exemplos: " + e.getMessage());
         }
+    }
+
+    private void listAssetFiles(String assetPath, List<String> out) throws IOException {
+        String[] kids = getAssets().list(assetPath);
+        if (kids == null || kids.length == 0) {
+            out.add(assetPath);
+            return;
+        }
+        for (int i = 0; i < kids.length; i++) listAssetFiles(assetPath + "/" + kids[i], out);
     }
 
     private void copyAssetTree(String assetPath, File dest) throws IOException {

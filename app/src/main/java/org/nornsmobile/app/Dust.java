@@ -10,12 +10,15 @@ import java.io.OutputStream;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.TreeSet;
+import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
@@ -351,6 +354,37 @@ final class Dust {
         } catch (IOException e) {
             // ignora
         }
+    }
+
+    static final String EXAMPLES_MARKER_PREFIX = ".examples-";
+
+    /**
+     * Nome do arquivo que marca "os exemplos embutidos já foram copiados para o dust". Depende da versão e da lista
+     * de arquivos embutidos no APK (sem importar a ordem): quando um script novo entra no APK o nome muda e a cópia
+     * roda de novo, sem sobrescrever nada que já exista. Só a lista conta, não o conteúdo: um exemplo que o usuário
+     * editou nunca é trocado pelo embutido.
+     */
+    static String examplesMarkerName(String version, Collection<String> assetPaths) {
+        CRC32 crc = new CRC32();
+        for (String path : new TreeSet<String>(assetPaths)) {
+            crc.update(path.getBytes(UTF8));
+            crc.update('\n');
+        }
+        String hex = Long.toHexString(crc.getValue());
+        while (hex.length() < 8) hex = "0" + hex;
+        return EXAMPLES_MARKER_PREFIX + version + "-" + hex;
+    }
+
+    /** Apaga os marcadores de exemplos de versões ou listas antigas e devolve quantos foram apagados. */
+    static int removeStaleExampleMarkers(File root, String keep) {
+        File[] files = root.listFiles();
+        if (files == null) return 0;
+        int removed = 0;
+        for (File f : files) {
+            String name = f.getName();
+            if (f.isFile() && name.startsWith(EXAMPLES_MARKER_PREFIX) && !name.equals(keep) && f.delete()) removed++;
+        }
+        return removed;
     }
 
     // ------------------------------------------------------------------ nomes

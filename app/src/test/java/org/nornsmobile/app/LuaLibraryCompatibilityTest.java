@@ -70,7 +70,8 @@ public class LuaLibraryCompatibilityTest {
                 "dust/code/hello_norns/hello_norns.lua",
                 "dust/code/midi_test_seq/midi_test_seq.lua",
                 "dust/code/polyperc_seq/polyperc_seq.lua",
-                "dust/code/device_check/device_check.lua"
+                "dust/code/device_check/device_check.lua",
+                "dust/code/mobile_selftest/mobile_selftest.lua"
         };
         Globals globals = JsePlatform.standardGlobals();
         for (String path : paths) {
